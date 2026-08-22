@@ -12,11 +12,12 @@ pub struct ReconstructionInputs {
 }
 
 impl ReconstructionInputs {
-    pub fn load(
+    pub fn load_with_header(
         global_metadata_path: &Path,
         dll_path: &Path,
         startup_metadata_path: &Path,
         profile: &BuildProfile,
+        mhy: MhyHeader,
     ) -> Result<Self> {
         let dll =
             fs::read(dll_path).with_context(|| format!("Failed to read {}", dll_path.display()))?;
@@ -29,19 +30,6 @@ impl ReconstructionInputs {
         };
         let startup_metadata = fs::read(startup_metadata_path)
             .with_context(|| format!("Failed to read {}", startup_metadata_path.display()))?;
-        let mut matching_headers = MhyHeader::candidates(&dll).into_iter().filter(|header| {
-            (header.values[33] ^ 0x6853_1d3f) as usize == profile.type_definition_offset
-                && header.image_count() > 0
-                && header
-                    .image_count()
-                    .checked_mul(40)
-                    .and_then(|size| size.checked_add(header.image_off()))
-                    .is_some_and(|end| end <= startup_metadata.len())
-        });
-        let mhy = matching_headers
-            .next()
-            .or_else(|| MhyHeader::parse(&dll).ok())
-            .ok_or_else(|| anyhow::anyhow!("no MHY header matches the resolved build profile"))?;
         Ok(Self {
             global_body,
             dll,

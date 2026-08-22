@@ -18,18 +18,8 @@ struct Args {
     startup: Option<PathBuf>,
     #[arg(short, long, help = "Output directory (default: current directory)")]
     output_dir: Option<PathBuf>,
-    #[arg(
-        long,
-        conflicts_with = "legacy_profile",
-        help = "Load a build profile from JSON"
-    )]
+    #[arg(long, help = "Load a build profile from JSON")]
     profile: Option<PathBuf>,
-    #[arg(
-        long,
-        conflicts_with = "profile",
-        help = "Use the isolated legacy profile without discovery"
-    )]
-    legacy_profile: bool,
     #[arg(long, help = "Write the resolved build profile to JSON")]
     write_profile: Option<PathBuf>,
     #[arg(long, help = "Write automatic discovery evidence to JSON")]
@@ -96,10 +86,8 @@ fn main() -> anyhow::Result<()> {
             .join("startup-metadata.dat")
     });
     let output_dir = args.output_dir.unwrap_or_else(|| PathBuf::from("."));
-    let mut profile = if let Some(path) = args.profile {
-        BuildProfile::load(&path)?
-    } else if args.legacy_profile {
-        BuildProfile::legacy_current()
+    let (mut profile, mut discovered) = if let Some(path) = args.profile {
+        (BuildProfile::load(&path)?, None)
     } else {
         let discovered = discover_from_paths(&args.metadata, &args.dll, &startup_path)?;
         println!(
@@ -108,12 +96,6 @@ fn main() -> anyhow::Result<()> {
             discovered.evidence.metadata_prefix_size,
             discovered.evidence.image_count
         );
-        if !discovered.evidence.legacy_fallback_fields.is_empty() {
-            println!(
-                "[*] Legacy fallback fields: {}",
-                discovered.evidence.legacy_fallback_fields.join(", ")
-            );
-        }
         if let Some(path) = args.discovery_report {
             write_json(&path, &discovered.evidence)?;
         }
@@ -125,15 +107,19 @@ fn main() -> anyhow::Result<()> {
                 .context("runtime profile discovery was ambiguous or incomplete")?;
             write_json(&path, runtime)?;
         }
-        discovered.profile
+        (discovered.profile.clone(), Some(discovered))
     };
     profile.apply(&args.overrides.into());
     validate_profile(&profile)?;
     if let Some(path) = args.write_profile {
         profile.save(&path)?;
     }
-    let reconstructor =
-        Reconstructor::with_profile(&args.metadata, &args.dll, &startup_path, profile)?;
+    let reconstructor = if let Some(mut resolved) = discovered.take() {
+        resolved.profile = profile;
+        Reconstructor::with_discovered(&args.metadata, &args.dll, &startup_path, resolved)?
+    } else {
+        Reconstructor::with_profile(&args.metadata, &args.dll, &startup_path, profile)?
+    };
     reconstructor.run(&output_dir)
 }
 

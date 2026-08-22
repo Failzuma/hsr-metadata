@@ -21,23 +21,6 @@ pub struct BuildProfile {
 }
 
 impl BuildProfile {
-    pub fn legacy_current() -> Self {
-        Self {
-            metadata_prefix_size: 520,
-            type_definition_count: 76_920,
-            type_definition_offset: 0x16984B8,
-            generic_parameter_count: 586_599,
-            generic_container_count: 32_768,
-            interface_count: 39_412,
-            interface_offset: 0x5814500,
-            string_literal_count: 125_207,
-            primary_method_pointer_file_offset: 0x3EABE60,
-            fallback_method_pointer_file_offset: 0x45D4B40,
-            minimum_method_pointer_va: 0x180001000,
-            maximum_method_pointer_va: 0x1A0000000,
-        }
-    }
-
     pub fn load(path: &Path) -> Result<Self> {
         let data = fs::read(path).with_context(|| format!("failed to read {}", path.display()))?;
         serde_json::from_slice(&data)

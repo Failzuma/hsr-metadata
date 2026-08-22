@@ -167,8 +167,8 @@ pub fn decrypt_types_and_fields(
 ) -> (Vec<TypeDef>, Vec<FieldDef>, Vec<FieldOffsetEntry>) {
     let total_types = profile.type_definition_count;
     let type_def_off = profile.type_definition_offset;
-    let mhy96_off = mhy.mhy96().wrapping_sub(455350429) as usize;
-    let mhy39_off = mhy.mhy39().wrapping_sub(1132541481) as usize;
+    let mhy96_off = mhy.field_type_map_base();
+    let mhy39_off = mhy.field_offset_map_base();
     let field_base = mhy.field_table_base();
     let offset_base = mhy.offset_table_base();
     let interface_ranges = decode_interface_ranges(global_body, type_def_off, total_types);
@@ -328,10 +328,12 @@ pub fn decrypt_types_and_fields(
         let mut v55_rec_2 = 0i32;
         if mhy96_off + 4 * i + 4 <= global_body.len() {
             let t_idx_in_96 = LittleEndian::read_i32(&global_body[mhy96_off + 4 * i..]);
-            let v55_off = mhy39_off + 12 * (t_idx_in_96 as usize);
-            if v55_off + 12 <= global_body.len() {
-                v55_rec_2 = LittleEndian::read_i32(&global_body[v55_off + 8..]);
-            }
+            v55_rec_2 = usize::try_from(t_idx_in_96)
+                .ok()
+                .and_then(|index| mhy39_off.checked_add(12usize.checked_mul(index)?))
+                .and_then(|offset| global_body.get(offset + 8..offset + 12))
+                .map(LittleEndian::read_i32)
+                .unwrap_or_default();
         }
 
         let mut v38_key =
@@ -354,12 +356,12 @@ pub fn decrypt_types_and_fields(
                 (format!("field_{}", v40), -1i32)
             };
 
-            let off_idx = (v40 as i32 + v55_rec_2) as usize;
-            let foff = if offset_base + 4 * off_idx + 4 <= global_body.len() {
-                LittleEndian::read_u32(&global_body[offset_base + 4 * off_idx..]) & 0xFFFFFF
-            } else {
-                0
-            };
+            let foff = usize::try_from(v40 as i32 + v55_rec_2)
+                .ok()
+                .and_then(|off_idx| offset_base.checked_add(4usize.checked_mul(off_idx)?))
+                .and_then(|offset| global_body.get(offset..offset + 4))
+                .map(|record| LittleEndian::read_u32(record) & 0x00ff_ffff)
+                .unwrap_or_default();
 
             field_offsets.push(FieldOffsetEntry {
                 type_idx: i as u32,

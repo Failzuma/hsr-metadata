@@ -15,8 +15,10 @@ string literals use rolling 64-bit XOR keys, while tables such as types, fields,
 methods, properties, events, and generics use their own record layouts and
 decoding formulas.
 
-`GameAssembly.dll` contains an `MHY` header whose encoded values locate many of
-these tables. It also contains runtime-only IL2CPP data such as type records,
+`GameAssembly.dll` contains an encoded MHY field block whose values locate many
+of these tables. Current builds mark it with `MHY\0`, but the reconstructor can
+also locate it from the native initialization code when that marker is absent.
+The executable also contains runtime-only IL2CPP data such as type records,
 generic instantiations, method pointers, and registration structures.
 `startup-metadata.dat` supplies additional records such as image and generic
 class mappings.
@@ -49,24 +51,23 @@ addresses refer to one another.
 
 ### MHY header and build discovery
 
-The reconstructor searches `GameAssembly.dll` for `MHY\0` candidates followed
-by 150 little-endian 32-bit values. These values do not contain normal table
-offsets directly. Each table uses its own transformation. Examples from
-[`src/discovery/mhy.rs`](src/discovery/mhy.rs) include:
+The reconstructor uses `MHY\0` as a fast locator when it is present. Otherwise,
+it follows the native initialization code that stores and later loads the field
+block pointer. The block size is derived from the fields actually accessed by
+the native code instead of assuming a fixed 150-field structure. Its values do
+not contain normal table offsets directly; each one uses an addition,
+subtraction, XOR, or shift transformation recovered from the executable.
 
-```text
-string table       = mhy[109] - 1924946706
-image table        = mhy[84]  + 0xD882615E
-image count        = (mhy[77] ^ 0x10210728) / 40
-type table         = mhy[33]  ^ 0x68531D3F
-field table        = mhy[8]   - 1292050039
-method table       = mhy[83]  - 207601004
-parameter table    = mhy[12]  - 587858498
-generic parameters = mhy[80]  - 626232567
-generic containers = mhy[60]  - 1656188401
-```
-
-All arithmetic uses the same wrapping 32-bit behavior as the game.
+[`src/discovery/native.rs`](src/discovery/native.rs) finds the native loader's
+reference to the field block and symbolically extracts those transformations
+from the machine code. [`src/discovery/mhy.rs`](src/discovery/mhy.rs) applies
+the recovered expressions with the same wrapping 32-bit behavior as the game.
+It treats their results as an unordered candidate catalog, so table roles do
+not depend on MHY field numbers or field order. Candidates are classified using
+metadata bounds, record structure, decoded names, cross-table ranges, literal
+ordering, defaults, interfaces, vtables, field maps, and generic ownership.
+Build-specific MHY masks, table offsets, record counts, registration addresses,
+and method-pointer locations are therefore not stored in a built-in profile.
 
 The discovery code validates each header candidate against the supplied files.
 It determines the metadata prefix by testing decoded image names, derives table

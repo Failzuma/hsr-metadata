@@ -61,22 +61,24 @@ fn data_position(global_body: &[u8], mhy: &MhyHeader, index: usize) -> Option<us
 #[cfg(test)]
 mod tests {
     use super::data_position;
-    use crate::discovery::mhy::MhyHeader;
+    use crate::discovery::mhy::{MhyHeader, MhyLayout};
 
     #[test]
     fn literal_position_uses_wrapping_runtime_arithmetic() {
         let mut body = vec![0u8; 16];
-        let mut values = [0u32; 150];
-        values[124] = 0x56c7_d20d;
-        values[2] = 0xc3e2_b83d;
         let mixed = 0x001f_0fe2_59cf_0538_u64 >> 14;
         let mask = 604_527_770u64.wrapping_mul(mixed) >> 8;
-        let data_base = values[2].wrapping_add(854_233_332);
+        let data_base = 0xc3e2_b83d_u32.wrapping_add(854_233_332);
         let encoded = (mask as u32).wrapping_sub(data_base);
         body[..4].copy_from_slice(&encoded.to_le_bytes());
         let header = MhyHeader {
-            values,
             file_offset: 0,
+            layout: MhyLayout {
+                string_literal_offsets: 0,
+                string_literal_data: data_base,
+                ..MhyLayout::default()
+            },
+            candidates: Default::default(),
         };
         assert_eq!(data_position(&body, &header, 0), Some(0));
     }

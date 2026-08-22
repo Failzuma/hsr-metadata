@@ -154,8 +154,8 @@ pub(crate) fn decode(inputs: &ReconstructionInputs, profile: &BuildProfile) -> D
 }
 
 fn decode_generic_classes(startup_metadata: &[u8], mhy: &MhyHeader) -> Vec<GenericClassEntry> {
-    let count = ((mhy.values[47] >> 3) ^ 0x079f_c2ec) as usize;
-    let base = (mhy.values[89] ^ 0x7f5c_5934) as usize;
+    let count = mhy.generic_class_count();
+    let base = mhy.generic_class_source_offset();
     (0..count)
         .filter_map(|index| {
             let offset = base.checked_add(index.checked_mul(8)?)?;

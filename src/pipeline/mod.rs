@@ -1,5 +1,5 @@
-use crate::discovery::discover_from_paths;
 use crate::discovery::profile::BuildProfile;
+use crate::discovery::{discover_from_paths, DiscoveredProfile};
 use crate::output::metadata::{build, write};
 use crate::reconstruction::decode;
 use crate::reconstruction::input::ReconstructionInputs;
@@ -23,11 +23,11 @@ impl Reconstructor {
     ) -> Result<Self> {
         let discovered =
             discover_from_paths(global_metadata_path, dll_path, startup_metadata_path)?;
-        Self::with_profile(
+        Self::with_discovered(
             global_metadata_path,
             dll_path,
             startup_metadata_path,
-            discovered.profile,
+            discovered,
         )
     }
 
@@ -37,13 +37,34 @@ impl Reconstructor {
         startup_metadata_path: &Path,
         profile: BuildProfile,
     ) -> Result<Self> {
-        let inputs = ReconstructionInputs::load(
+        let mut discovered =
+            discover_from_paths(global_metadata_path, dll_path, startup_metadata_path)?;
+        discovered.profile = profile;
+        Self::with_discovered(
             global_metadata_path,
             dll_path,
             startup_metadata_path,
-            &profile,
+            discovered,
+        )
+    }
+
+    pub fn with_discovered(
+        global_metadata_path: &Path,
+        dll_path: &Path,
+        startup_metadata_path: &Path,
+        discovered: DiscoveredProfile,
+    ) -> Result<Self> {
+        let inputs = ReconstructionInputs::load_with_header(
+            global_metadata_path,
+            dll_path,
+            startup_metadata_path,
+            &discovered.profile,
+            discovered.mhy,
         )?;
-        Ok(Self { inputs, profile })
+        Ok(Self {
+            inputs,
+            profile: discovered.profile,
+        })
     }
 
     pub fn run(&self, output_dir: &Path) -> Result<()> {
@@ -51,13 +72,19 @@ impl Reconstructor {
         let metadata = decode(&self.inputs, &self.profile);
         let validation = validate(&metadata, &self.profile);
         if !validation.is_valid() {
+            const DISPLAY_LIMIT: usize = 20;
             let messages = validation
                 .errors
                 .iter()
+                .take(DISPLAY_LIMIT)
                 .map(|issue| issue.message.as_str())
                 .collect::<Vec<_>>()
                 .join("; ");
-            bail!("decoded metadata failed validation: {messages}");
+            let remaining = validation.errors.len().saturating_sub(DISPLAY_LIMIT);
+            if remaining == 0 {
+                bail!("decoded metadata failed validation: {messages}");
+            }
+            bail!("decoded metadata failed validation: {messages}; and {remaining} more errors");
         }
         println!(
             "[*] Decoded {} images, {} types, {} fields, {} properties, {} events, {} methods, {} parameters",
